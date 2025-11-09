@@ -5,12 +5,12 @@ from flax import linen as nn
 from jax.flatten_util import ravel_pytree
 from jax.tree_util import tree_map
 from functools import partial
-import lagrangian as lgr
-import util
+import piml_library.lagrangian as lgr
+import piml_library.util as util
 
 class LagrangianNN(nn.Module): #nn.Moduleを継承。NNの雛形
     '''
-    Input : s(t, q, v) → Output : L(t, q, v)
+    Input : s(t, q, v) → Output : L
     '''
     hidden_dim: int = 128
     
@@ -97,35 +97,9 @@ def train_step(params, opt_state, optimizer, model_apply_fn, batch_states, batch
     
 #ODEソルバーを用いて軌道を生成する
 def create_trajectory(model_apply_fn, trained_params):
-    L_trained = lambda s: model_apply_fn({'params': trained_params}, s) # L = (tuned)model_apply_fn(s)
-    ds = lgr.state_derivative(L_trained) #状態微分を作成
+    L_learned = lambda s: model_apply_fn({'params': trained_params}, s) # L = (trained)model_apply_fn(s)
+    ds = lgr.state_derivative(L_learned) #状態微分を作成
     solver = util.ode_solver(ds) #ソルバーによって時間発展を計算
     return solver
-
-'''
-#データセットを軌道と関係なくランダムに生成する
-def create_dataset(L_analytic):
-    a_true_func = lgr.lagrangian_to_acceleration(L_analytic) #L((t, q, v))
-    
-    #a_true_funcを一括適応する関数に変換
-    vmap_a_true_func = jax.vmap(
-        lambda t, q, v: a_true_func((t, q, v)), 
-        in_axes=(0, 0, 0)
-    )
-
-    @partial(jax.jit, static_argnames=('batch_size', 'q_dim'))
-    def get_true_data(key, batch_size, q_dim):
-        
-        key_q, key_v = jax.random.split(key)
-        #q, vは独立して扱う
-        q_batch = jax.random.uniform(key_q, shape=(batch_size, q_dim), minval=-1.0, maxval=1.0)
-        v_batch = jax.random.uniform(key_v, shape=(batch_size, q_dim), minval=-1.0, maxval=1.0)
-        _ = jnp.zeros((batch_size,))
-        batch_states = (_, q_batch, v_batch)
-        a_true_batch = vmap_a_true_func(_, q_batch, v_batch)
-        
-        return batch_states, a_true_batch
-    return get_true_data
-'''
 
 

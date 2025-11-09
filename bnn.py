@@ -5,8 +5,8 @@ from flax import linen as nn
 from jax.flatten_util import ravel_pytree
 from jax.tree_util import tree_map
 from functools import partial
-import lagrangian as lgr
-import util
+import piml_library.lagrangian as lgr
+import piml_library.util as util
 
 class BaselineNN(nn.Module):
     '''
@@ -68,14 +68,13 @@ def train_step(params, opt_state, optimizer, model_apply_fn, _, batch_true_accel
 
 
 def create_trajectory(model_apply_fn, trained_params):
-    a_trained = lambda s : model_apply_fn({'params':trained_params}, s)
+    a_learned = lambda s : model_apply_fn({'params':trained_params}, s)
     
     @jax.jit
-    def state_derivative(t, state_qv, args=None):
-        q, v = state_qv
-        s = (t, q, v)
-        a_pred = jnp.array[a_trained(s)] #aはスカラーとしてNNから出るためｖと形状をあわせる
-        return (jnp.array[1.0], v, a_pred)
+    def state_derivative(state, args=None):
+        t, q, v = state
+        a_pred = jnp.array([a_learned(state)]) #aはスカラーとしてNNから出るためｖと形状をあわせる
+        return jnp.array(1.0), v, a_pred
     
     solver = util.ode_solver(state_derivative)
     return solver

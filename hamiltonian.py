@@ -1,8 +1,8 @@
 import jax 
 from jax import numpy as np
 from jax import grad, jvp, jacrev, jacfwd
-from util import compose, tuple_to_multi_arg, principal_value, ode_solver, principal_value, compatible_zero, solve_linear_left, state_mapper
-import lagrangian as lgr
+from piml_library.util import compose, tuple_to_multi_arg, multi_arg_to_tuple, principal_value, ode_solver, principal_value, compatible_zero, solve_linear_left, state_mapper
+import piml_library.lagrangian as lgr
 
 
 def state(t,q,p):

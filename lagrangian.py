@@ -1,5 +1,5 @@
 import jax.numpy as np
-from util import compose, apply_iter, nest_iter, tuple_to_multi_arg, multi_arg_to_tuple, solve_linear_left, state_mapper
+from .util import compose, apply_iter, nest_iter, tuple_to_multi_arg, multi_arg_to_tuple, solve_linear_left, state_mapper
 from jax import jacfwd, jacrev, jvp, grad, vmap, jit
 
 def time(local):
