@@ -95,29 +95,12 @@ def train_step(params, opt_state, optimizer, model_apply_fn, batch_states, batch
     return new_params, new_opt_state, loss
     
 #ODEソルバーを用いて軌道を生成する
+#s=(t, q, p)であることに注意
 def create_trajectory(model_apply_fn, trained_params):
-    H_learned = lambda s: model_apply_fn({'params': trained_params}, s) # H(s)とするためのwrapper
+    H_learned = lambda s: model_apply_fn({'params': trained_params}, s) # H = (trained)model_apply_fn(s)
     ds = ham.state_derivative(H_learned)
     solver = util.ode_solver(ds)
-    v_from_H_func = ham.to_velocity(H_learned)
-    vmap_v_func = jax.vmap(
-        lambda t, q, p: v_from_H_func((t, q, p)),
-        in_axes=(0, 0, 0) # t, q, p のバッチ軸に沿って並列化
-    )
-    
-    # @partial(jax.jit) # 必要に応じて JIT 化
-    def final_hnn_solver(initial_state_lgr, t_eval, *args, **kwargs):
-        """
-        内部で (q,p) を計算し、(t,q,v) を返すソルバー
-        """
-        t0, q0, v0 = initial_state_lgr 
-        initial_state_hnn = (t0, q0, v0) 
-
-        t_traj, q_traj, p_traj = solver(initial_state_hnn, t_eval, *args, **kwargs)
-        v_traj = vmap_v_func(t_traj, q_traj, p_traj)
-        
-        return (t_traj, q_traj, v_traj)
-    return final_hnn_solver
+    return solver
     
     
     

@@ -68,32 +68,32 @@ def plot_trajectory_error(t, q_true, v_true, q_learned, v_learned, title_prefix=
 
 def plot_phase_space(q_true, v_true, q_learned, v_learned, title_prefix=""):
     """
-    学習済み軌道と真の軌道の位相空間 (q vs v) をプロットします。
+    学習済み軌道と真の軌道の位相空間 (q vs p) をプロットします。
    
     """
     plt.figure(figsize=(6, 6))
-    plt.plot(q_true, v_true, 'b-', label='True Phase Space (Energy Conservation)') #
-    plt.plot(q_learned, v_learned, 'r--', label='Learned Phase Space (LNN)') #
-    plt.title(f'{title_prefix} Phase Space (q vs v)') #
+    plt.plot(q_true, v_true, 'b-', label='True Phase Space') #
+    plt.plot(q_learned, v_learned, 'r--', label='Learned Phase Space') #
+    plt.title(f'{title_prefix} Phase Space (q vs p)') #
     plt.xlabel('Position (q)') #
-    plt.ylabel('Velocity (v)') #
+    plt.ylabel('Velocity (p)') #
     plt.legend() #
     plt.axis('equal') #
     plt.show() #
     
 def plot_energy_comparison(t, E_true, E_learned, title_prefix=""):
     """
-    学習済み系と真の系のトータルエネルギー (E = T + V) を時間に対してプロットします。
+    
     """
     plt.figure(figsize=(10, 5))
     
     # トータルエネルギーのプロット
-    plt.plot(t, E_true, 'b-', label='True Energy (E_true)', linewidth=2)
-    plt.plot(t, E_learned, 'r--', label='Learned Energy (E_learned)', markersize=4)
+    plt.plot(t, E_true, 'b-', label='True', linewidth=2)
+    plt.plot(t, E_learned, 'r--', label='Learned', markersize=4)
 
-    plt.title(f'{title_prefix} Total Energy (T+V)')
-    plt.xlabel('Time (t)')
-    plt.ylabel('Energy (E)')
+    plt.title('L or H')
+    plt.xlabel('t')
+    plt.ylabel('L or H')
     plt.legend()
     plt.tight_layout()
     plt.show()

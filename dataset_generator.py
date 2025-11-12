@@ -11,12 +11,13 @@ import numpy as np
 from jax.tree_util import tree_map
 
 import piml_library.lagrangian as lgr
+import piml_library.hamiltonian as ham
 import piml_library.util as util
 
 # --- データ生成関数 (メイン) ---
 def create_trajectory_datasets(
-    L_analytical_func, 
-    H_analytical_func, 
+    L_analytical, #L(t, q, v)
+    H_analytical,  #H(t, q, p)
     key, 
     q_dim=1, 
     num_trajectories=50, 
@@ -33,15 +34,15 @@ def create_trajectory_datasets(
     print("--- 学習用・テスト用データセットの生成開始 ---")
 
     # --- analytical data generator (引数で受け取った関数を使用) ---
-    ds_true = lgr.state_derivative(L_analytical_func) 
+    ds_true = lgr.state_derivative(L_analytical) 
     solver_true = util.ode_solver(ds_true)
-    a_true_func = lgr.lagrangian_to_acceleration(L_analytical_func) 
+    a_true_func = lgr.lagrangian_to_acceleration(L_analytical) 
     vmap_a_true_func = jax.vmap(
         lambda t, q, v: a_true_func((t, q, v)), 
         in_axes=(0, 0, 0)
     )
     
-    L_multi_arg = util.tuple_to_multi_arg(L_analytical_func) #L((t, q, p))→L(t, q, p)
+    L_multi_arg = util.tuple_to_multi_arg(L_analytical) #L((t, q, p))→L(t, q, p)
     
     #p=∂L/∂q_dot
     p_func = jax.grad(L_multi_arg, 2)
@@ -78,13 +79,12 @@ def create_trajectory_datasets(
         q0 = jnp.array([r_val * jnp.cos(theta_val)])
         v0 = jnp.array([r_val * jnp.sin(theta_val)])
         
-        initial_state = (0.0, q0, v0)
-        
-        # ★ 引数で受け取った H_analytical_func を使用
-        E0 = H_analytical_func(initial_state)
+        initial_lgr_state = (0.0, q0, v0)
+        initial_ham_state = ham.lagrangian_state_to_hamiltonian_state(L_analytical)(initial_lgr_state)
+        E0 = H_analytical(initial_ham_state)
         initial_energies_list.append(E0)
         
-        t_traj, q_traj, v_traj = solver_true(initial_state, t_eval)
+        t_traj, q_traj, v_traj = solver_true(initial_lgr_state, t_eval)
         a_traj = vmap_a_true_func(t_traj, q_traj, v_traj)
         p_traj = vmap_p_func(t_traj, q_traj, v_traj)
         dq_dt_traj = v_traj
@@ -117,7 +117,7 @@ def create_trajectory_datasets(
     test_v = jnp.concatenate(test_v_list, axis=0)
     test_targets = jnp.concatenate(test_a_list, axis=0)
 
-    # LNN用データ
+    # LNN & BNN用データ
     train_states_lnn = (train_t, train_q, train_v)
     train_targets_lnn = jnp.concatenate(train_a_list, axis=0)
     test_states_lnn = (test_t, test_q, test_v)

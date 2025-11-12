@@ -96,6 +96,7 @@ def train_step(params, opt_state, optimizer, model_apply_fn, batch_states, batch
     return new_params, new_opt_state, loss
     
 #ODEソルバーを用いて軌道を生成する
+#(t, q, v)の形
 def create_trajectory(model_apply_fn, trained_params):
     L_learned = lambda s: model_apply_fn({'params': trained_params}, s) # L = (trained)model_apply_fn(s)
     ds = lgr.state_derivative(L_learned) #状態微分を作成
