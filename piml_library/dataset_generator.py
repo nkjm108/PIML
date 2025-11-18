@@ -16,8 +16,8 @@ import piml_library.util as util
 
 # --- データ生成関数 (メイン) ---
 def create_trajectory_datasets(
-    L_analytical, #L(t, q, v)
-    H_analytical,  #H(t, q, p)
+    L_analytical, #L((t, q, v))
+    H_analytical,  #H((t, q, p))
     key, 
     q_dim=1, 
     num_trajectories=50, 
@@ -33,7 +33,7 @@ def create_trajectory_datasets(
     
     print("--- 学習用・テスト用データセットの生成開始 ---")
 
-    # --- analytical data generator (引数で受け取った関数を使用) ---
+    # 軌道を計算するために使用
     ds_true = lgr.state_derivative(L_analytical) 
     solver_true = util.ode_solver(ds_true)
     a_true_func = lgr.lagrangian_to_acceleration(L_analytical) 
@@ -61,7 +61,6 @@ def create_trajectory_datasets(
     t_eval = jnp.linspace(0.0, t_end, N_points_per_traj)
     N_points_train = int(N_points_per_traj * split_ratio)
 
-    
     # データを一時的に保存するリスト
     train_t_list, train_q_list, train_v_list, train_p_list, train_a_list = [], [], [], [], []
     test_t_list, test_q_list, test_v_list, test_p_list, test_a_list = [], [], [], [], []
@@ -71,18 +70,17 @@ def create_trajectory_datasets(
     print(f"Generating {num_trajectories} trajectories...")
 
     for i in range(num_trajectories):
-        key, r_key, theta_key = jax.random.split(key, 3)
         
-        r_val = jax.random.uniform(r_key, minval=0.1, maxval=2.0)
-        theta_val = jax.random.uniform(theta_key, minval=0.0, maxval=2.0*jnp.pi)
-        
-        q0 = jnp.array([r_val * jnp.cos(theta_val)])
-        v0 = jnp.array([r_val * jnp.sin(theta_val)])
-        
-        initial_lgr_state = (0.0, q0, v0)
-        initial_ham_state = ham.lagrangian_state_to_hamiltonian_state(L_analytical)(initial_lgr_state)
-        E0 = H_analytical(initial_ham_state)
-        initial_energies_list.append(E0)
+        if q_dim == 1:
+            key, y_key, r_key = jax.random.split(key, 3)
+            y0 = jax.random.uniform(y_key, shape=(q_dim*2,))*2-1 #[-1.0, 1.0]の範囲で乱数を2つ生成する
+            radius = jax.random.uniform(r_key)*0.9 + 0.1 #エネルギーの範囲を決定
+            y0 = y0 / jnp.sqrt((y0**2).sum()) * radius #初期状態をここで決定する
+            '''
+            データにガウシアンノイズを加える必要がある?
+            '''
+            initial_lgr_state = (0.0, y0[0], y0[1])
+            initial_energies_list.append(radius)
         
         t_traj, q_traj, v_traj = solver_true(initial_lgr_state, t_eval)
         a_traj = vmap_a_true_func(t_traj, q_traj, v_traj)
@@ -132,8 +130,7 @@ def create_trajectory_datasets(
     train_targets_hnn = tree_map(lambda *x: jnp.concatenate(x, axis=0), *train_hnn_target_list)
     test_targets_hnn = tree_map(lambda *x: jnp.concatenate(x, axis=0), *test_hnn_target_list)
 
-    # その他
-    initial_energies = jnp.array(initial_energies_list)
+    initial_energies = jnp.array(initial_energies_list) # 初期エネルギー
     N_train_total = train_q.shape[0]
     N_test_total = test_q.shape[0]
     

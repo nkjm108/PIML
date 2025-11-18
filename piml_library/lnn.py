@@ -12,7 +12,8 @@ class LagrangianNN(nn.Module): #nn.Moduleを継承。NNの雛形
     '''
     Input : s(t, q, v) → Output : L
     '''
-    hidden_dim: int = 128
+    hidden_dim : int
+    out_dim : int
     
     @nn.compact
     def __call__(self, state):
@@ -30,7 +31,7 @@ class LagrangianNN(nn.Module): #nn.Moduleを継承。NNの雛形
         x = nn.softplus(x) #活性化関数
         x = nn.Dense(self.hidden_dim)(x)
         x = nn.softplus(x)
-        x = nn.Dense(1)(x)
+        x = nn.Dense(self.out_dim)(x)
         # (batch_size, 1) -> (batch_size,)
         return x.squeeze()
     

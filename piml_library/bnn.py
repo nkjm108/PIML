@@ -12,8 +12,8 @@ class BaselineNN(nn.Module):
     '''
     Input : s(t, q, v) → Output : a
     '''
-    hidden_dim : int = 128
-    output_dim : int = 0
+    hidden_dim : int
+    output_dim : int
     
     @nn.compact
     def __call__(self, state):
@@ -30,7 +30,7 @@ class BaselineNN(nn.Module):
         x = nn.softplus(x)
         x = nn.Dense(self.hidden_dim)(x)
         x = nn.softplus(x)
-        x = nn.Dense(1)(x)
+        x = nn.Dense(self.output_dim)(x)
         return x.squeeze()
 
 
