@@ -5,7 +5,8 @@ from flax import linen as nn
 from jax.flatten_util import ravel_pytree
 from jax.tree_util import tree_map
 from functools import partial
-import piml_library.lagrangian as lgr
+import piml_library.lagrangian as lag
+import piml_library.hamiltonian as ham
 import piml_library.util as util
 
 class LagrangianNN(nn.Module): #nn.Moduleを継承。NNの雛形
@@ -17,9 +18,9 @@ class LagrangianNN(nn.Module): #nn.Moduleを継承。NNの雛形
     
     @nn.compact
     def __call__(self, state):
-        t = lgr.time(state)
-        q = lgr.coordinate(state)
-        v = lgr.velocity(state)
+        t = lag.time(state)
+        q = lag.coordinate(state)
+        v = lag.velocity(state)
         
         q_flat, _ = ravel_pytree(q)
         v_flat, _ = ravel_pytree(v)
@@ -52,7 +53,7 @@ def compute_loss(params, model_apply_fn, batch_states, batch_true_accelerations)
     # model_apply_fnにparamsを適応させる
     L_learned = lambda s: model_apply_fn({'params': params}, s)
     
-    a_func = lgr.lagrangian_to_acceleration(L_learned)
+    a_func = lag.lagrangian_to_acceleration(L_learned)
     
     # vmapを用いることで並列処理
     # q_batch = ((q0_data0, q0_data1, ...), (q1_data0, q2_data1, ....))の可能性も
@@ -100,8 +101,12 @@ def train_step(params, opt_state, optimizer, model_apply_fn, batch_states, batch
 #(t, q, v)の形
 def create_trajectory(model_apply_fn, trained_params):
     L_learned = lambda s: model_apply_fn({'params': trained_params}, s) # L = (trained)model_apply_fn(s)
-    ds = lgr.state_derivative(L_learned) #状態微分を作成
+    ds = lag.state_derivative(L_learned) #状態微分を作成
     solver = util.ode_solver(ds) #ソルバーによって時間発展を計算
     return solver
 
-
+def create_trajectory_for_hnn(HNN_from_LNN_fn) : #s= (t, q, p)
+    H_learned = lambda s: HNN_from_LNN_fn(s)
+    ds = ham.state_derivative(H_learned)
+    solver = util.ode_solver(ds)
+    return solver
