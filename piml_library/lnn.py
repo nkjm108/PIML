@@ -28,8 +28,8 @@ class LagrangianNN(nn.Module): #nn.Moduleを継承。NNの雛形
         inputs = jnp.concatenate([q_flat, v_flat])
         
         #MLP
-        x = nn.Dense(self.hidden_dim)(inputs) #全結合層
-        x = nn.softplus(x) #活性化関数
+        x = nn.Dense(self.hidden_dim)(inputs) 
+        x = nn.softplus(x) 
         x = nn.Dense(self.hidden_dim)(x)
         x = nn.softplus(x)
         x = nn.Dense(self.out_dim)(x)
@@ -93,19 +93,19 @@ def train_step(params, opt_state, optimizer, model_apply_fn, batch_states, batch
     )
     
     # 2. update parameter
-    updates, new_opt_state = optimizer.update(grads, opt_state)
+    updates, new_opt_state = optimizer.update(grads, opt_state, params)
     new_params = optax.apply_updates(params, updates)
     return new_params, new_opt_state, loss
     
 #ODEソルバーを用いて軌道を生成する
-#(t, q, v)の形
+#s=(t, q, v)の形
 def create_trajectory(model_apply_fn, trained_params):
-    L_learned = lambda s: model_apply_fn({'params': trained_params}, s) # L = (trained)model_apply_fn(s)
-    ds = lag.state_derivative(L_learned) #状態微分を作成
-    solver = util.ode_solver(ds) #ソルバーによって時間発展を計算
+    L_learned = lambda s: model_apply_fn({'params': trained_params}, s) #s=(t, q, v)
+    ds = lag.state_derivative(L_learned)
+    solver = util.ode_solver(ds) 
     return solver
 
-def create_trajectory_for_hnn(HNN_from_LNN_fn) : #s= (t, q, p)
+def create_trajectory_for_hnn(HNN_from_LNN_fn) : #s=(t, q, p)
     H_learned = lambda s: HNN_from_LNN_fn(s)
     ds = ham.state_derivative(H_learned)
     solver = util.ode_solver(ds)

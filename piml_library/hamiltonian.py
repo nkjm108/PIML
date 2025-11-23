@@ -84,7 +84,7 @@ def lagrangian_to_hamiltonian(the_lagrangian):
         t = time(hstate)
         q = coordinate(hstate)
         p = momentum(hstate)
-        L = lambda qdot : the_lagrangian(lgr.state(t, q, qdot))
+        L = lambda qdot : the_lagrangian(state(t, q, qdot))
         return legendre_transformation(L)(p)
     return the_hamiltonian
 

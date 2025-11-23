@@ -9,7 +9,7 @@ import piml_library.lagrangian as lag
 import piml_library.hamiltonian as ham
 import piml_library.util as util
 
-class HamiltonianNN(nn.Module): #nn.Moduleを継承。NNの雛形
+class HamiltonianNN(nn.Module):
     '''
     Input : s=(t, q, p) → Output : H
     '''
@@ -48,6 +48,7 @@ def compute_loss(params, model_apply_fn, batch_states, batch_true_derivatives):
     H_learned_ = util.tuple_to_multi_arg(H_learned) # H_(t, q, p)
     dH1 = jax.grad(H_learned_, 1)
     dH2 = jax.grad(H_learned_, 2)
+    
     vmap_grad_H1 = jax.vmap(
         lambda t, q, p: dH1(t, q, p),
         in_axes=(0,0,0)
@@ -66,10 +67,11 @@ def compute_loss(params, model_apply_fn, batch_states, batch_true_derivatives):
     loss_term2 = tree_map(lambda pred, true: pred + true,
                           grad_H1_pred, p_dot_true_batch)
     
-    diff_tuple = (loss_term1, loss_term2)
-    diff_flat, _ = ravel_pytree(diff_tuple)
+    flat1, _ = ravel_pytree(loss_term1)
+    flat2, _ = ravel_pytree(loss_term2)
+    all_diffs = jnp.concatenate([flat1, flat2])
+    loss = jnp.mean(all_diffs**2)
     
-    loss = jnp.mean(diff_flat**2)
     return loss
 
 @partial(jax.jit, static_argnames=('optimizer', 'model_apply_fn'))
@@ -81,20 +83,17 @@ def train_step(params, opt_state, optimizer, model_apply_fn, batch_states, batch
         batch_true_derivative
     )
     
-    # 2. update parameter
-    updates, new_opt_state = optimizer.update(grads, opt_state)
+    updates, new_opt_state = optimizer.update(grads, opt_state, params)
     new_params = optax.apply_updates(params, updates)
     return new_params, new_opt_state, loss
     
-#ODEソルバーを用いて軌道を生成する
-#s=(t, q, p)であることに注意
 def create_trajectory(model_apply_fn, trained_params):
-    H_learned = lambda s: model_apply_fn({'params': trained_params}, s) # H = (trained)model_apply_fn(s)
+    H_learned = lambda s: model_apply_fn({'params': trained_params}, s) #s=(t, q, p)
     ds = ham.state_derivative(H_learned)
     solver = util.ode_solver(ds)
     return solver
 
-def create_trajectory_for_lnn(LNN_from_HNN_fn) : #s= (t, q, v)
+def create_trajectory_for_lnn(LNN_from_HNN_fn) : #s=(t, q, v)
     L_learned = lambda s: LNN_from_HNN_fn(s)
     ds = lag.state_derivative(L_learned)
     solver = util.ode_solver(ds)

@@ -251,3 +251,8 @@ def hessian(argnums_col=0, argnums_row=0):
         )
 
     return wrapper
+  
+def L2_loss(u, v):
+  diff = tree_map(lambda x, y: x - y, u, v)
+  flat_diff, _ = ravel_pytree(diff)
+  return jnp.mean(flat_diff**2)

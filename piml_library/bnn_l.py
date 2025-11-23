@@ -62,7 +62,7 @@ def train_step(params, opt_state, optimizer, model_apply_fn, _, batch_true_accel
     )
 
     #update parameter
-    updates, new_opt_state = optimizer.update(grads, opt_state)
+    updates, new_opt_state = optimizer.update(grads, opt_state, params)
     new_params = optax.apply_updates(params, updates)
     return new_params, new_opt_state, loss
 
