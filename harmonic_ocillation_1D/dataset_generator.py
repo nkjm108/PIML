@@ -80,8 +80,8 @@ def create_trajectory_datasets(
             '''
             データにガウシアンノイズを加える必要がある?
             '''
-            #noise = jax.random.normal(noise_key, shape=y0.shape) * noise_std
-            y0_noisy = y0 #+ noise
+            noise = jax.random.normal(noise_key, shape=y0.shape) * noise_std
+            y0_noisy = y0 + noise
             initial_lgr_state = (0.0, y0_noisy[0], y0_noisy[1])
             initial_energies_list.append(radius)
         
