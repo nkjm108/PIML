@@ -1,7 +1,3 @@
-# ---------------------------------------------
-# ファイル名: dataset_generator.py (修正版)
-# ---------------------------------------------
-
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
@@ -14,7 +10,6 @@ import piml_library.lagrangian as lag
 import piml_library.hamiltonian as ham
 import piml_library.util as util
 
-# --- データ生成関数 (メイン) ---
 def create_trajectory_datasets(
     L_analytical, #L((t, q, v))
     H_analytical,  #H((t, q, p))
