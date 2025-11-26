@@ -26,18 +26,44 @@ class LagrangianNN(nn.Module): #nn.Moduleを継承。NNの雛形
         v_flat, _ = ravel_pytree(v)
         
         inputs = jnp.concatenate([q_flat, v_flat])
+
+        '''
+        LNN Initialization
+        n = hidden units number
+        '''
+        n = self.hidden_dim
+        sqrt_n = jnp.sqrt(n)
         
-        #MLP
-        x = nn.Dense(self.hidden_dim)(inputs) 
+        # input layer → hidden layer 1
+        var_input = 2.2 / sqrt_n
+        x = nn.Dense(
+            self.hidden_dim,
+            kernel_init=nn.initializers.normal(stddev=jnp.sqrt(var_input)),
+            bias_init=nn.initializers.zeros
+        )(inputs) 
         x = nn.softplus(x) 
-        x = nn.Dense(self.hidden_dim)(x)
+        
+        # hidden layer 1 → hidden layer 2
+        var_hidden1 = (0.58 * 1) / sqrt_n
+        x = nn.Dense(
+            self.hidden_dim,
+            kernel_init=nn.initializers.normal(stddev=jnp.sqrt(var_hidden1)),
+            bias_init=nn.initializers.zeros
+        )(x)
         x = nn.softplus(x)
-        x = nn.Dense(self.out_dim)(x)
-        # (batch_size, 1) -> (batch_size,)
+        
+        # hidden layer 2 → output layer
+        var_output = n / sqrt_n 
+        x = nn.Dense(
+            1,
+            kernel_init=nn.initializers.normal(stddev=jnp.sqrt(var_output)),
+            bias_init=nn.initializers.zeros
+        )(x)
+        
         return x.squeeze()
     
+
 # defining loss function
-# model_apply_fnはlnn_model.apply()という関数オブジェクトなので、jax配列として扱わない
 @partial(jax.jit, static_argnames=('model_apply_fn',))
 def compute_loss(params, model_apply_fn, batch_states, batch_true_accelerations):
     """
