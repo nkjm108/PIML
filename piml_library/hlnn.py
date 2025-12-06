@@ -1,7 +1,8 @@
 import jax
 import jax.numpy as jnp
 import optax
-from flax import linen as nn
+from flax import linen as nn 
+from flax.linen import initializers
 from jax.flatten_util import ravel_pytree
 from jax.tree_util import tree_map
 from functools import partial
@@ -9,24 +10,24 @@ import piml_library.lagrangian as lag
 import piml_library.hamiltonian as ham
 import piml_library.util as util
 
-class LNN(nn.Module): 
+class HLNN(nn.Module):
     '''
-    Input : s(t, q, v) → Output : L
+    Input : s=(t, q, p) → Output : H
     '''
-    hidden_dim : int
+    hidden_dim : int 
     out_dim : int
     
     @nn.compact
     def __call__(self, state):
-        t = lag.time(state)
-        q = lag.coordinate(state)
-        v = lag.velocity(state)
+        t = ham.time(state) 
+        q = ham.coordinate(state)
+        p = ham.momentum(state)
         
         q_flat, _ = ravel_pytree(q)
-        v_flat, _ = ravel_pytree(v)
+        p_flat, _ = ravel_pytree(p)
         
-        inputs = jnp.concatenate([q_flat, v_flat])
-
+        inputs = jnp.concatenate([q_flat, p_flat])
+        
         '''
         LNN Initialization
         n = hidden units number
@@ -62,11 +63,12 @@ class LNN(nn.Module):
         
         return x.squeeze()
 
-# defining loss function
+
 @partial(jax.jit, static_argnames=('model_apply_fn',))
 def compute_loss(params, model_apply_fn, batch_states, batch_true_accelerations):
     
-    L_learned = lambda s: model_apply_fn({'params': params}, s)
+    H_learned = lambda s: model_apply_fn({'params': params}, s)
+    L_learned = ham.hamiltonian_to_lagrangian(H_learned)
     
     a_func = lag.lagrangian_to_acceleration(L_learned)
     
@@ -101,11 +103,4 @@ def train_step(params, opt_state, optimizer, model_apply_fn, batch_states, batch
     updates, new_opt_state = optimizer.update(grads, opt_state, params)
     new_params = optax.apply_updates(params, updates)
     return new_params, new_opt_state, loss
-    
-#s=(t, q, v)の形
-def create_trajectory(model_apply_fn, trained_params):
-    L_learned = lambda s: model_apply_fn({'params': trained_params}, s) #s=(t, q, v)
-    ds = lag.state_derivative(L_learned)
-    solver = util.ode_solver(ds) 
-    return solver
 

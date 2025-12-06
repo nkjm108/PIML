@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax import linen as nn
+from flax.linen import initializers
 from jax.flatten_util import ravel_pytree
 from jax.tree_util import tree_map
 from functools import partial
@@ -26,11 +27,40 @@ class BaselineNN_l(nn.Module):
         v_flat, _ = ravel_pytree(v)
         
         inputs = jnp.concatenate([q_flat, v_flat])
-        x = nn.Dense(self.hidden_dim)(inputs)
+        
+        '''
+        LNN Initialization
+        n = hidden units number
+        '''
+        n = self.hidden_dim
+        sqrt_n = jnp.sqrt(n)
+        
+        # input layer → hidden layer 1
+        var_input = 2.2 / sqrt_n
+        x = nn.Dense(
+            self.hidden_dim,
+            kernel_init=nn.initializers.normal(stddev=jnp.sqrt(var_input)),
+            bias_init=nn.initializers.zeros
+        )(inputs) 
+        x = nn.softplus(x) 
+        
+        # hidden layer 1 → hidden layer 2
+        var_hidden1 = (0.58 * 1) / sqrt_n
+        x = nn.Dense(
+            self.hidden_dim,
+            kernel_init=nn.initializers.normal(stddev=jnp.sqrt(var_hidden1)),
+            bias_init=nn.initializers.zeros
+        )(x)
         x = nn.softplus(x)
-        x = nn.Dense(self.hidden_dim)(x)
-        x = nn.softplus(x)
-        x = nn.Dense(self.output_dim)(x)
+        
+        # hidden layer 2 → output layer
+        var_output = n / sqrt_n 
+        x = nn.Dense(
+            self.output_dim,
+            kernel_init=nn.initializers.normal(stddev=jnp.sqrt(var_output)),
+            bias_init=nn.initializers.zeros
+        )(x)
+        
         return x.squeeze()
 
 

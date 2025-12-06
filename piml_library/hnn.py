@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 import optax
-from flax import linen as nn
+from flax import linen as nn 
 from jax.flatten_util import ravel_pytree
 from jax.tree_util import tree_map
 from functools import partial
@@ -9,7 +9,7 @@ import piml_library.lagrangian as lag
 import piml_library.hamiltonian as ham
 import piml_library.util as util
 
-class HamiltonianNN(nn.Module):
+class HNN(nn.Module):
     '''
     Input : s=(t, q, p) → Output : H
     '''
@@ -27,13 +27,39 @@ class HamiltonianNN(nn.Module):
         
         inputs = jnp.concatenate([q_flat, p_flat])
         
-        #MLP
-        x = nn.Dense(self.hidden_dim)(inputs)
+        '''
+        LNN Initialization
+        n = hidden units number
+        '''
+        n = self.hidden_dim
+        sqrt_n = jnp.sqrt(n)
+        
+        # input layer → hidden layer 1
+        var_input = 2.2 / sqrt_n
+        x = nn.Dense(
+            self.hidden_dim,
+            kernel_init=nn.initializers.normal(stddev=jnp.sqrt(var_input)),
+            bias_init=nn.initializers.zeros
+        )(inputs) 
         x = nn.softplus(x) 
-        x = nn.Dense(self.hidden_dim)(x)
+        
+        # hidden layer 1 → hidden layer 2
+        var_hidden1 = (0.58 * 1) / sqrt_n
+        x = nn.Dense(
+            self.hidden_dim,
+            kernel_init=nn.initializers.normal(stddev=jnp.sqrt(var_hidden1)),
+            bias_init=nn.initializers.zeros
+        )(x)
         x = nn.softplus(x)
-        x = nn.Dense(self.out_dim)(x)
-        # (batch_size, 1) -> (batch_size,)
+        
+        # hidden layer 2 → output layer
+        var_output = n / sqrt_n 
+        x = nn.Dense(
+            1,
+            kernel_init=nn.initializers.normal(stddev=jnp.sqrt(var_output)),
+            bias_init=nn.initializers.zeros
+        )(x)
+        
         return x.squeeze()
     
     
@@ -78,7 +104,7 @@ def compute_loss(params, model_apply_fn, batch_states, batch_true_derivatives):
 def train_step(params, opt_state, optimizer, model_apply_fn, batch_states, batch_true_derivative):
     loss, grads = jax.value_and_grad(compute_loss)( 
         params, 
-        model_apply_fn, 
+        model_apply_fn,
         batch_states, 
         batch_true_derivative
     )
@@ -93,11 +119,7 @@ def create_trajectory(model_apply_fn, trained_params):
     solver = util.ode_solver(ds)
     return solver
 
-def create_trajectory_for_lnn(LNN_from_HNN_fn) : #s=(t, q, v)
-    L_learned = lambda s: LNN_from_HNN_fn(s)
-    ds = lag.state_derivative(L_learned)
-    solver = util.ode_solver(ds)
-    return solver
+
     
     
     

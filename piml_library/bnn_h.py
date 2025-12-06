@@ -11,7 +11,8 @@ import piml_library.util as util
 
 class BaselineNN_h(nn.Module):
     '''
-    Input : s(t, q, v) → Output : (qdot, pdot)
+    Input : s(t, q, p) → Output : (qdot, pdot)
+    Modified with Orthogonal Initialization
     '''
     hidden_dim : int
     output_dim : int
@@ -22,16 +23,45 @@ class BaselineNN_h(nn.Module):
         q = ham.coordinate(state)
         p = ham.momentum(state)
         
-        #タプルから1次元配列への変換
+        # タプルから1次元配列への変換
         q_flat, _ = ravel_pytree(q)
         p_flat, _ = ravel_pytree(p)
         
         inputs = jnp.concatenate([q_flat, p_flat])
-        x = nn.Dense(self.hidden_dim)(inputs)
+        
+        '''
+        LNN Initialization
+        n = hidden units number
+        '''
+        n = self.hidden_dim
+        sqrt_n = jnp.sqrt(n)
+        
+        # input layer → hidden layer 1
+        var_input = 2.2 / sqrt_n
+        x = nn.Dense(
+            self.hidden_dim,
+            kernel_init=nn.initializers.normal(stddev=jnp.sqrt(var_input)),
+            bias_init=nn.initializers.zeros
+        )(inputs) 
+        x = nn.softplus(x) 
+        
+        # hidden layer 1 → hidden layer 2
+        var_hidden1 = (0.58 * 1) / sqrt_n
+        x = nn.Dense(
+            self.hidden_dim,
+            kernel_init=nn.initializers.normal(stddev=jnp.sqrt(var_hidden1)),
+            bias_init=nn.initializers.zeros
+        )(x)
         x = nn.softplus(x)
-        x = nn.Dense(self.hidden_dim)(x)
-        x = nn.softplus(x)
-        x = nn.Dense(self.output_dim*2)(x)
+        
+        # hidden layer 2 → output layer
+        var_output = n / sqrt_n 
+        x = nn.Dense(
+            self.output_dim*2,
+            kernel_init=nn.initializers.normal(stddev=jnp.sqrt(var_output)),
+            bias_init=nn.initializers.zeros
+        )(x)
+        
         return x.squeeze()
 
 
