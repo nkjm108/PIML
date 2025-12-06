@@ -10,125 +10,160 @@ import piml_library.lagrangian as lag
 import piml_library.hamiltonian as ham
 import piml_library.util as util
 
+class DataScaler:
+    def __init__(self):
+        self.mean = None
+        self.std = None
+
+    def fit(self, data):
+        # データの平均と標準偏差を計算 (Time, Dim) or (Batch, Dim)
+        self.mean = jnp.mean(data, axis=0)
+        self.std = jnp.std(data, axis=0) + 1e-6 # ゼロ除算防止
+
+    def transform(self, data):
+        return (data - self.mean) / self.std
+
+    def inverse_transform(self, data):
+        return data * self.std + self.mean
+
 def create_trajectory_datasets(
-    L_analytical, #L((t, q, v))
-    H_analytical,  #H((t, q, p))
+    L_analytical, # L((t, q, v))
+    H_analytical, # H((t, q, p))
     key, 
     q_dim=1, 
     num_trajectories=50, 
-    N_points_per_traj=500, 
-    t_end=25.0, 
-    split_ratio=0.5,
+    N_points_per_traj=30, # 論文の設定(30点)
+    t_end=3.0,            # 論文の設定(dt=0.1 * 30 = 3.0)
+    test_split_ratio=0.5, # 軌道の何割をテストにするか
     noise_std=0.1
 ):
     
     """
     指定された L (ラグランジアン) と H (ハミルトニアン) を使って、
-    軌道データセットを生成し、時間で学習用とテスト用に分割する。
+    独立した軌道データセットを生成し、軌道単位で学習用とテスト用に分割して返す。
+    
+    Args:
+        test_split_ratio (float): 全軌道数のうち、テストデータにする割合 (0.0 ~ 1.0)
     """
     
     print("--- 学習用・テスト用データセットの生成開始 ---")
 
-    # 軌道を計算するために使用
+    # --- 1. 物理量の計算関数を定義 ---
+    # 運動方程式 (Lagrangian -> ODE)
     ds_true = lag.state_derivative(L_analytical) 
     solver_true = util.ode_solver(ds_true)
+    
+    # 加速度 (LNN/BNN Target)
     a_true_func = lag.lagrangian_to_acceleration(L_analytical) 
-    vmap_a_true_func = jax.vmap(
-        lambda t, q, v: a_true_func((t, q, v)), 
-        in_axes=(0, 0, 0)
-    )
+    vmap_a_true_func = jax.vmap(lambda t, q, v: a_true_func((t, q, v)), in_axes=(0, 0, 0))
     
-    L_multi_arg = util.tuple_to_multi_arg(L_analytical) #L((t, q, p))→L(t, q, p)
+    # 解析的な p と p_dot (HNN Target)
+    L_multi_arg = util.tuple_to_multi_arg(L_analytical) # L(t, q, v)
     
-    #p=∂L/∂q_dot
+    # p = ∂L/∂v
     p_func = jax.grad(L_multi_arg, 2)
-    vmap_p_func = jax.vmap(
-        lambda t, q, v: p_func(t, q, v),
-        in_axes=(0,0,0)
-    )
+    vmap_p_func = jax.vmap(lambda t, q, v: p_func(t, q, v), in_axes=(0,0,0))
     
-    #p_dot = ∂L/∂q
+    # p_dot = ∂L/∂q
     p_dot_func = jax.grad(L_multi_arg, 1)
-    vmap_p_dot_func = jax.vmap(
-        lambda t, q, v: p_dot_func(t, q, v),
-        in_axes=(0,0,0)
-    )
+    vmap_p_dot_func = jax.vmap(lambda t, q, v: p_dot_func(t, q, v), in_axes=(0,0,0))
 
+    # 時間軸 (全期間) ここのやり方が多分おかしい
     t_eval = jnp.linspace(0.0, t_end, N_points_per_traj)
-    N_points_train = int(N_points_per_traj * split_ratio)
-
-    # データを一時的に保存するリスト
-    train_t_list, train_q_list, train_v_list, train_p_list, train_a_list = [], [], [], [], []
-    test_t_list, test_q_list, test_v_list, test_p_list, test_a_list = [], [], [], [], []
-    train_hnn_target_list, test_hnn_target_list = [], []
+    
+    # 全軌道のデータを一時保存するリスト
+    all_t, all_q, all_v, all_p, all_a = [], [], [], [], []
+    all_hnn_targets = []
     initial_energies_list = [] 
 
-    print(f"Generating {num_trajectories} trajectories...")
+    print(f"Generating {num_trajectories} independent trajectories...")
 
+    # --- 2. 軌道生成ループ ---
     for i in range(num_trajectories):
         
+        # 初期値生成
         if q_dim == 1:
             key, y_key, r_key, noise_key = jax.random.split(key, 4)
-            y0 = jax.random.uniform(y_key, shape=(q_dim*2,))*2-1 #[-1.0, 1.0]の範囲で乱数を2つ生成する
-            radius = jax.random.uniform(r_key)*0.9 + 0.1 #エネルギーの範囲を決定
-            y0 = y0 / jnp.sqrt((y0**2).sum()) * radius #初期状態をここで決定する
-            '''
-            データにガウシアンノイズを加える必要がある?
-            '''
-            noise = jax.random.normal(noise_key, shape=y0.shape) * noise_std
-            y0_noisy = y0 + noise
-            initial_lgr_state = (0.0, y0_noisy[0], y0_noisy[1])
+            
+            # ランダムな方向とエネルギー(半径)を決定
+            y0 = jax.random.uniform(y_key, shape=(q_dim*2,))*2-1 # [-1.0, 1.0]
+            radius = jax.random.uniform(r_key)*0.9 + 0.1         # エネルギー範囲 [0.2, 1.0]
+            y0 = y0 / jnp.sqrt((y0**2).sum()) * radius           # 正規化してスケーリング
+            
+            initial_lgr_state = (0.0, y0[0], y0[1])
             initial_energies_list.append(radius)
         
-        t_traj, q_traj, v_traj = solver_true(initial_lgr_state, t_eval)
-        a_traj = vmap_a_true_func(t_traj, q_traj, v_traj)
-        p_traj = vmap_p_func(t_traj, q_traj, v_traj)
-        dq_dt_traj = v_traj
-        dp_dt_traj = vmap_p_dot_func(t_traj, q_traj, v_traj)
+        # ODEソルバーで軌道を計算
+        t_traj, q_clean, v_clean = solver_true(initial_lgr_state, t_eval)
         
-        # 軌道を学習用 (前半) とテスト用 (後半) に分割
-        train_t_list.append(t_traj[:N_points_train])
-        train_q_list.append(q_traj[:N_points_train])
-        train_v_list.append(v_traj[:N_points_train])
-        train_p_list.append(p_traj[:N_points_train])
-        train_a_list.append(a_traj[:N_points_train])
+        # 各物理量（真値）を計算
+        a_clean = vmap_a_true_func(t_traj, q_clean, v_clean)       
+        p_clean = vmap_p_func(t_traj, q_clean, v_clean)             
+        dp_dt_clean = vmap_p_dot_func(t_traj, q_clean, v_clean)     
+        dq_dt_clean = v_clean                                 # 位置時間微分 (HNN Target)
         
-        test_t_list.append(t_traj[N_points_train:])
-        test_q_list.append(q_traj[N_points_train:])
-        test_v_list.append(v_traj[N_points_train:])
-        test_p_list.append(p_traj[N_points_train:])
-        test_a_list.append(a_traj[N_points_train:])
+        # 軌道全体に観測ノイズを加える
+        # それぞれの物理量に対して個別にノイズを生成
+        key, nq_key, nv_key, np_key = jax.random.split(key, 4)
+        q_noisy = q_clean + jax.random.normal(nq_key, shape=q_clean.shape) * noise_std
+        v_noisy = v_clean + jax.random.normal(nv_key, shape=v_clean.shape) * noise_std
+        p_noisy = p_clean + jax.random.normal(np_key, shape=p_clean.shape) * noise_std
         
-        train_hnn_target_list.append( (dq_dt_traj[:N_points_train], dp_dt_traj[:N_points_train]) )
-        test_hnn_target_list.append( (dq_dt_traj[N_points_train:], dp_dt_traj[N_points_train:]) )
+        # リストに追加
+        # 入力データ(states)には「ノイズあり」を使う
+        all_t.append(t_traj)
+        all_q.append(q_noisy) 
+        all_v.append(v_noisy)
+        all_p.append(p_noisy)
+        
+        #ターゲットに使うからクリーンなものを
+        all_a.append(a_clean) 
+        all_hnn_targets.append((dq_dt_clean, dp_dt_clean))
 
-    # --- データを巨大なJAX配列に連結 ---
-    train_t = jnp.concatenate(train_t_list, axis=0)
-    train_q = jnp.concatenate(train_q_list, axis=0)
-    train_v = jnp.concatenate(train_v_list, axis=0)
-    train_targets = jnp.concatenate(train_a_list, axis=0)
-
-    test_t = jnp.concatenate(test_t_list, axis=0)
-    test_q = jnp.concatenate(test_q_list, axis=0)
-    test_v = jnp.concatenate(test_v_list, axis=0)
-    test_targets = jnp.concatenate(test_a_list, axis=0)
-
-    # LNN & BNN用データ
-    train_states_lnn = (train_t, train_q, train_v)
-    train_targets_lnn = jnp.concatenate(train_a_list, axis=0)
-    test_states_lnn = (test_t, test_q, test_v)
-    test_targets_lnn = jnp.concatenate(test_a_list, axis=0)
-    initial_energies = jnp.array(initial_energies_list)
+    # Train / Test 分割と結合
+    # 軌道単位で分割数を決定
+    num_test = int(num_trajectories * test_split_ratio)
+    num_train = num_trajectories - num_test
     
-    # HNN用データ
-    train_p = jnp.concatenate(train_p_list, axis=0)
-    test_p = jnp.concatenate(test_p_list, axis=0)
+    print(f"Splitting: {num_train} Train trajectories / {num_test} Test trajectories")
+
+    # リストをスライスして結合するヘルパー関数
+    def concat_split(data_list, idx_start, idx_end):
+        # 該当範囲のリストを結合 (Batch, Time, Dim) -> (Batch*Time, Dim)
+        return jnp.concatenate(data_list[idx_start:idx_end], axis=0)
+
+    # Train Data (前半 num_train 本)
+    train_t = concat_split(all_t, 0, num_train)
+    train_q = concat_split(all_q, 0, num_train)
+    train_v = concat_split(all_v, 0, num_train)
+    train_p = concat_split(all_p, 0, num_train)
+    
+    # Targets
+    train_targets_lnn = concat_split(all_a, 0, num_train)
+    train_dq_dt = concat_split([x[0] for x in all_hnn_targets], 0, num_train)
+    train_dp_dt = concat_split([x[1] for x in all_hnn_targets], 0, num_train)
+    train_targets_hnn = (train_dq_dt, train_dp_dt)
+
+    # Test Data (後半 num_test 本)
+    test_t = concat_split(all_t, num_train, num_trajectories)
+    test_q = concat_split(all_q, num_train, num_trajectories)
+    test_v = concat_split(all_v, num_train, num_trajectories)
+    test_p = concat_split(all_p, num_train, num_trajectories)
+    
+    # Targets
+    test_targets_lnn = concat_split(all_a, num_train, num_trajectories)
+    test_dq_dt = concat_split([x[0] for x in all_hnn_targets], num_train, num_trajectories)
+    test_dp_dt = concat_split([x[1] for x in all_hnn_targets], num_train, num_trajectories)
+    test_targets_hnn = (test_dq_dt, test_dp_dt)
+
+    # 状態タプルにまとめる
+    train_states_lnn = (train_t, train_q, train_v)
+    test_states_lnn = (test_t, test_q, test_v)
+    
     train_states_hnn = (train_t, train_q, train_p)
     test_states_hnn = (test_t, test_q, test_p)
-    train_targets_hnn = tree_map(lambda *x: jnp.concatenate(x, axis=0), *train_hnn_target_list)
-    test_targets_hnn = tree_map(lambda *x: jnp.concatenate(x, axis=0), *test_hnn_target_list)
 
-    initial_energies = jnp.array(initial_energies_list) # 初期エネルギー
+    initial_energies = jnp.array(initial_energies_list)
     N_train_total = train_q.shape[0]
     N_test_total = test_q.shape[0]
     
@@ -136,7 +171,6 @@ def create_trajectory_datasets(
     print(f"Total Train Points: {N_train_total}")
     print(f"Total Test Points:  {N_test_total}")
 
-    # データを辞書形式で返す
     return {
         # LNN / Standard NN 用
         "train_states_lnn": train_states_lnn,
